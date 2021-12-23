@@ -1,0 +1,24 @@
+plugins {
+    id 'org.springframework.boot' version '2.6.1'
+    id 'io.spring.dependency-management' version '1.0.11.RELEASE'
+
+    id 'java'
+}
+
+group 'de.qaware'
+version '0.1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // spring development dependencies
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+}
+
+test {
+    useJUnitPlatform()
+}
