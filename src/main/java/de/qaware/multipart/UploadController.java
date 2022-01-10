@@ -45,8 +45,7 @@ public class UploadController {
     }
 
     @PostMapping(value = "multipart/file", produces = MediaType.APPLICATION_JSON_VALUE, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<List<UploadResult>> storeDocument(@RequestPart(name = "file1") MultipartFile multipartFile) throws IOException {
-
+    public ResponseEntity<List<UploadResult>> storeDocument(@RequestPart(name = "file1") InputStreamResource multipartFile) throws IOException {
         Checksum checksum = new CRC32();
         long numBytes = readBodyData(multipartFile.getInputStream(), checksum);
         return ResponseEntity.ok(List.of(new UploadResult(numBytes, checksum.getValue())));

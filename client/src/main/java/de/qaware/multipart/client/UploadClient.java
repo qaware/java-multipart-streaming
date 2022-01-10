@@ -5,6 +5,7 @@ import okio.BufferedSink;
 import okio.Okio;
 import okio.Source;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.entity.EntityBuilder;
 import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
@@ -21,48 +22,77 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.Callable;
 import java.util.zip.CRC32;
 import java.util.zip.CheckedInputStream;
 import java.util.zip.Checksum;
 
-public class UploadClient {
-    private static final long SEED = 42;
-    private static final long NUM_BYTES = 1024L * 1024L * 1024L;
+@Command(name = "upload", mixinStandardHelpOptions = true)
+public class UploadClient implements Callable<Integer> {
     private static final Logger log = LoggerFactory.getLogger(UploadClient.class);
 
-    private static final String URL = "http://localhost:8080/api/multipart";
+    private static final long SEED = 42;
+    private static final String BASE_URL = "http://localhost:8080";
 
-    public static void main(String[] args) throws IOException, ParseException {
+    @Option(names = {"--client-type"})
+    ClientType clientType = ClientType.APACHE_HTTP5;
+    @Option(names = {"--request-type"})
+    RequestType requestType = RequestType.MULTIPART;
+    @Option(names = {"--random-data"})
+    boolean randomData = false;
+    @Option(names = {"--num-bytes"})
+    long numBytes = 2 * 1024L * 1024L * 1024L;
 
-        HttpClient httpClient = HttpClient.APACHE_HTTP5;
-        if (args.length > 1) {
-            httpClient = HttpClient.valueOf(args[0]);
-        }
+    @Override
+    public Integer call() throws Exception {
+        String url = BASE_URL + requestType.getPath();
+        InputStream inputStream = randomData ? new RandomInputStream(numBytes, 32, SEED) : new FastInputStream(numBytes);
+
+        log.info("Performing {} request with client {} against {} using {}",
+                requestType, clientType, url, inputStream.getClass().getSimpleName());
 
         long tStart = System.nanoTime();
         Checksum checksum = new CRC32();
-        try (InputStream inputStream = new RandomInputStream(NUM_BYTES, 32, SEED);
-             CheckedInputStream checkedInputStream = new CheckedInputStream(inputStream, checksum)) {
-            switch (httpClient) {
-                case APACHE_HTTP5 -> apacheHttpClient5(checkedInputStream);
-                case OK_HTTP -> okHttpClient(checkedInputStream);
-                case SPRING_WEB_FLUX -> springBootWebClient(checkedInputStream);
-            }
+        try (CheckedInputStream checkedInputStream = new CheckedInputStream(inputStream, checksum)) {
+            ServerResponse response = switch (requestType) {
+                case MULTIPART, MULTIPART_FILE -> switch (clientType) {
+                    case APACHE_HTTP5 -> multipartApacheHttpClient5(url, checkedInputStream);
+                    case OK_HTTP -> okHttpClient(url, checkedInputStream);
+                    case SPRING_WEB_FLUX -> multipartSpringBootWebClient(url, checkedInputStream);
+                };
+                case SINGLE_PART -> switch (clientType) {
+                    case APACHE_HTTP5 -> singlePartApacheHttpClient5(url, checkedInputStream);
+                    case SPRING_WEB_FLUX -> singlePartSpringBootWebClient(url, checkedInputStream);
+                    default -> throw new IllegalArgumentException("Client type not supported");
+                };
+            };
+            log.info("Response: {} - {}", response.code, response.body);
         }
         long tEnd = System.nanoTime();
         double duration = (tEnd - tStart) / 1e9;
-        log.info("Number of bytes: {}", NUM_BYTES);
+        String mbPerSecond = String.format("%.3f", numBytes / duration / 1024 / 1024);
+        log.info("Number of bytes: {}", numBytes);
         log.info("Checksum: {}", checksum.getValue());
         log.info("Duration: {}", duration);
+        log.info("MB/s: {}", mbPerSecond);
+        return 0;
     }
 
-    private static void apacheHttpClient5(InputStream inputStream)
-            throws IOException, ParseException {
+    public static void main(String[] args) {
+        int exitCode = new CommandLine(new UploadClient()).execute(args);
+        System.exit(exitCode);
+    }
+
+
+    private static ServerResponse multipartApacheHttpClient5(String url, InputStream inputStream) throws IOException {
         try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
-            HttpPost httppost = new HttpPost(URL);
+            HttpPost httppost = new HttpPost(url);
 
             HttpEntity httpEntity = MultipartEntityBuilder.create()
                     .addBinaryBody("file", inputStream, ContentType.APPLICATION_OCTET_STREAM, null)
@@ -71,16 +101,32 @@ public class UploadClient {
 
             try (final CloseableHttpResponse response = httpclient.execute(httppost)) {
                 String responseBody = EntityUtils.toString(response.getEntity());
-                log.info("Response: {} {}\n\n{}",
-                        response.getCode(),
-                        response.getReasonPhrase(),
-                        responseBody
-                );
+                return new ServerResponse(response.getCode(), responseBody);
+            } catch (ParseException e) {
+                throw new IOException("Can not parse response", e);
             }
         }
     }
 
-    private static void okHttpClient(InputStream inputStream) throws IOException {
+    private static ServerResponse singlePartApacheHttpClient5(String url, InputStream inputStream) throws IOException {
+        try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
+            HttpPost httppost = new HttpPost(url);
+
+            httppost.setEntity(EntityBuilder.create()
+                    .setStream(inputStream)
+                    .setContentType(ContentType.APPLICATION_OCTET_STREAM)
+                    .build());
+
+            try (final CloseableHttpResponse response = httpclient.execute(httppost)) {
+                String responseBody = EntityUtils.toString(response.getEntity());
+                return new ServerResponse(response.getCode(), responseBody);
+            } catch (ParseException e) {
+                throw new IOException("Can not parse response", e);
+            }
+        }
+    }
+
+    private static ServerResponse okHttpClient(String url, InputStream inputStream) throws IOException {
         OkHttpClient client = new OkHttpClient();
 
         RequestBody requestBody = new RequestBody() {
@@ -106,29 +152,45 @@ public class UploadClient {
                 )
                 .build();
         Request request = new Request.Builder()
-                .url(URL)
+                .url(url)
                 .post(body)
                 .build();
         try (Response response = client.newCall(request).execute()) {
-            log.info("Response: {}", response.code());
+            var responseBody = response.body();
+            return new ServerResponse(response.code(), responseBody == null ? "" : responseBody.string());
         }
     }
 
-    private static void springBootWebClient(InputStream inputStream) {
+    private static ServerResponse multipartSpringBootWebClient(String url, InputStream inputStream) {
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
         builder.part("file1", new InputStreamResource(inputStream), MediaType.APPLICATION_OCTET_STREAM);
 
-        WebClient client = WebClient.create(URL);
+        WebClient client = WebClient.create(url);
         ResponseEntity<String> response = client.post()
                 .body(BodyInserters.fromMultipartData(builder.build()))
                 .retrieve()
                 .toEntity(String.class)
                 .block();
         if (response != null) {
-            log.info("Response: {}", response.getStatusCode());
-        } else {
-            log.error("No response");
+            return new ServerResponse(response.getStatusCodeValue(), response.getBody());
         }
+        return new ServerResponse(0, "");
+    }
+
+    private static ServerResponse singlePartSpringBootWebClient(String url, InputStream inputStream) {
+        WebClient client = WebClient.create(url);
+        ResponseEntity<String> response = client.post()
+                .body(BodyInserters.fromResource(new InputStreamResource(inputStream)))
+                .retrieve()
+                .toEntity(String.class)
+                .block();
+        if (response != null) {
+            return new ServerResponse(response.getStatusCodeValue(), response.getBody());
+        }
+        return new ServerResponse(0, "");
+    }
+
+    private record ServerResponse(int code, String body) {
     }
 }
 

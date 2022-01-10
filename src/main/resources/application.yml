@@ -2,5 +2,5 @@ logging.level.org.springframework.web: DEBUG
 spring:
   servlet:
     multipart:
-      max-file-size: 5GB
-      max-request-size: 5GB
+      max-file-size: 2GB
+      max-request-size: 2GB
