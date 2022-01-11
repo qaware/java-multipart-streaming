@@ -39,6 +39,7 @@ public class UploadClient implements Callable<Integer> {
 
     private static final long SEED = 42;
     private static final String BASE_URL = "http://localhost:8080";
+    public static final String FILE_NAME = "file1";
 
     @Option(names = {"--client-type"})
     ClientType clientType = ClientType.APACHE_HTTP5;
@@ -47,7 +48,7 @@ public class UploadClient implements Callable<Integer> {
     @Option(names = {"--random-data"})
     boolean randomData = false;
     @Option(names = {"--num-bytes"})
-    long numBytes = 2 * 1024L * 1024L * 1024L;
+    long numBytes = 2 * 1024L * 1024L * 1024L - 1024L;
 
     @Override
     public Integer call() throws Exception {
@@ -95,7 +96,7 @@ public class UploadClient implements Callable<Integer> {
             HttpPost httppost = new HttpPost(url);
 
             HttpEntity httpEntity = MultipartEntityBuilder.create()
-                    .addBinaryBody("file", inputStream, ContentType.APPLICATION_OCTET_STREAM, null)
+                    .addBinaryBody(FILE_NAME, inputStream, ContentType.APPLICATION_OCTET_STREAM, "file")
                     .build();
             httppost.setEntity(httpEntity);
 
@@ -146,7 +147,7 @@ public class UploadClient implements Callable<Integer> {
         RequestBody body = new MultipartBody.Builder()
                 .setType(okhttp3.MediaType.get("multipart/form-data"))
                 .addFormDataPart(
-                        "file1",
+                        FILE_NAME,
                         "",
                         requestBody
                 )
@@ -163,7 +164,7 @@ public class UploadClient implements Callable<Integer> {
 
     private static ServerResponse multipartSpringBootWebClient(String url, InputStream inputStream) {
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
-        builder.part("file1", new InputStreamResource(inputStream), MediaType.APPLICATION_OCTET_STREAM);
+        builder.part(FILE_NAME, new InputStreamResource(inputStream), MediaType.APPLICATION_OCTET_STREAM);
 
         WebClient client = WebClient.create(url);
         ResponseEntity<String> response = client.post()

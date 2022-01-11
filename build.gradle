@@ -17,6 +17,8 @@ dependencies {
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
 
     implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    runtimeOnly 'org.springdoc:springdoc-openapi-ui:1.6.4'
 }
 
 test {
