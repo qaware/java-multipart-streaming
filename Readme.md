@@ -1,8 +1,12 @@
 # Examples for streaming HTTP multipart data
 
 Streaming data without any intermediate file storage does not work out of the box.
-This repository gives an example of how to achieve it is Spring Boot
+This repository gives an example of how to achieve it with Spring Boot
 and also offers some example clients with different frameworks.
+
+Server implementation: [UploadController.java](./src/main/java/de/qaware/multipart/UploadController.java)
+
+Client implementation: [UploadClient.java](./client/src/main/java/de/qaware/multipart/client/UploadClient.java)
 
 ## Usage
 

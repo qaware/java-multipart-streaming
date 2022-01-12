@@ -1,3 +1,4 @@
 rootProject.name = 'java-multipart-streaming'
 include 'client'
+include 'common'
 

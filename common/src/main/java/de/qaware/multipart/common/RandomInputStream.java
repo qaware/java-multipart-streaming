@@ -1,4 +1,4 @@
-package de.qaware.multipart.client;
+package de.qaware.multipart.common;
 
 import java.io.InputStream;
 import java.util.Random;

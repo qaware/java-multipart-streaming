@@ -1,5 +1,8 @@
 package de.qaware.multipart.client;
 
+import de.qaware.multipart.common.FastInputStream;
+import de.qaware.multipart.common.MeteredInputStream;
+import de.qaware.multipart.common.RandomInputStream;
 import okhttp3.*;
 import okio.BufferedSink;
 import okio.Okio;
@@ -28,6 +31,7 @@ import picocli.CommandLine.Option;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import java.util.zip.CRC32;
 import java.util.zip.CheckedInputStream;
@@ -58,9 +62,11 @@ public class UploadClient implements Callable<Integer> {
         log.info("Performing {} request with client {} against {} using {}",
                 requestType, clientType, url, inputStream.getClass().getSimpleName());
 
+        MeteredInputStream meteredInputStream = new MeteredInputStream(inputStream);
+
         long tStart = System.nanoTime();
         Checksum checksum = new CRC32();
-        try (CheckedInputStream checkedInputStream = new CheckedInputStream(inputStream, checksum)) {
+        try (CheckedInputStream checkedInputStream = new CheckedInputStream(meteredInputStream, checksum)) {
             ServerResponse response = switch (requestType) {
                 case MULTIPART, MULTIPART_FILE -> switch (clientType) {
                     case APACHE_HTTP5 -> multipartApacheHttpClient5(url, checkedInputStream);
@@ -82,6 +88,7 @@ public class UploadClient implements Callable<Integer> {
         log.info("Checksum: {}", checksum.getValue());
         log.info("Duration: {}", duration);
         log.info("MB/s: {}", mbPerSecond);
+        meteredInputStream.toCsv(Path.of("stats-client.csv"));
         return 0;
     }
 

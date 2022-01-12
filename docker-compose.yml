@@ -1,0 +1,15 @@
+version: '3.5'
+
+services:
+  blob-storage:
+    image: mcr.microsoft.com/azure-storage/azurite:3.14.3
+    command:
+      - 'azurite-blob'
+      - '--blobHost=0.0.0.0'
+    ports:
+      - '10000:10000'
+    volumes:
+      - 'blob-storage-data:/data'
+
+volumes:
+  blob-storage-data:
